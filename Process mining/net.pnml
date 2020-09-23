@@ -1,0 +1,112 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<pnml>
+  <net id="net1" type="http://www.pnml.org/version-2009/grammar/pnmlcoremodel">
+    <page id="n0">
+      <place id="source">
+        <name>
+          <text>source</text>
+        </name>
+        <initialMarking>
+          <text>1</text>
+        </initialMarking>
+      </place>
+      <place id="p_8">
+        <name>
+          <text>p_8</text>
+        </name>
+      </place>
+      <place id="p_11">
+        <name>
+          <text>p_11</text>
+        </name>
+      </place>
+      <place id="p_13">
+        <name>
+          <text>p_13</text>
+        </name>
+      </place>
+      <place id="p_7">
+        <name>
+          <text>p_7</text>
+        </name>
+      </place>
+      <place id="sink">
+        <name>
+          <text>sink</text>
+        </name>
+      </place>
+      <place id="p_14">
+        <name>
+          <text>p_14</text>
+        </name>
+      </place>
+      <transition id="5579bf9c-6f0a-4c57-b5c9-b8cdb0d71ced">
+        <name>
+          <text>T04 Determine confirmation of receipt</text>
+        </name>
+      </transition>
+      <transition id="2ba106fc-7925-4e0a-88f2-deb2ae51538b">
+        <name>
+          <text>T06 Determine necessity of stop advice</text>
+        </name>
+      </transition>
+      <transition id="c9ee215f-bd65-48c7-86aa-fe051534f74f">
+        <name>
+          <text>Confirmation of receipt</text>
+        </name>
+      </transition>
+      <transition id="skip_5">
+        <name>
+          <text>skip_5</text>
+        </name>
+        <toolspecific tool="ProM" version="6.4" activity="$invisible$" localNodeID="eb145f42-84df-4589-aeee-c28154d69ec9"/>
+      </transition>
+      <transition id="skip_9">
+        <name>
+          <text>skip_9</text>
+        </name>
+        <toolspecific tool="ProM" version="6.4" activity="$invisible$" localNodeID="cb3b8ab2-29cb-497f-b059-f71c4af25671"/>
+      </transition>
+      <transition id="33fc369b-6819-4f59-8ac9-281808f94bca">
+        <name>
+          <text>T05 Print and send confirmation of receipt</text>
+        </name>
+      </transition>
+      <transition id="cd7430e2-b2d2-4b53-ad66-6c3086288b50">
+        <name>
+          <text>T10 Determine necessity to stop indication</text>
+        </name>
+      </transition>
+      <transition id="99c2aa26-62f7-4f0b-8707-59baa965ee6c">
+        <name>
+          <text>T02 Check confirmation of receipt</text>
+        </name>
+      </transition>
+      <arc id="-9223371918778441836" source="2ba106fc-7925-4e0a-88f2-deb2ae51538b" target="p_7"/>
+      <arc id="-9223371918777988456" source="source" target="c9ee215f-bd65-48c7-86aa-fe051534f74f"/>
+      <arc id="-9223371918778734564" source="skip_9" target="p_13"/>
+      <arc id="-9223371918778131672" source="33fc369b-6819-4f59-8ac9-281808f94bca" target="p_11"/>
+      <arc id="-9223371918778579656" source="p_14" target="33fc369b-6819-4f59-8ac9-281808f94bca"/>
+      <arc id="-9223371918778052540" source="99c2aa26-62f7-4f0b-8707-59baa965ee6c" target="p_14"/>
+      <arc id="-9223371918778640828" source="c9ee215f-bd65-48c7-86aa-fe051534f74f" target="p_13"/>
+      <arc id="-9223371918778284472" source="c9ee215f-bd65-48c7-86aa-fe051534f74f" target="p_7"/>
+      <arc id="-9223371918778052528" source="5579bf9c-6f0a-4c57-b5c9-b8cdb0d71ced" target="p_14"/>
+      <arc id="-9223371918778052396" source="p_13" target="5579bf9c-6f0a-4c57-b5c9-b8cdb0d71ced"/>
+      <arc id="-9223371918778218664" source="skip_5" target="p_8"/>
+      <arc id="-9223371918778052520" source="p_14" target="skip_9"/>
+      <arc id="-9223371918778698792" source="p_11" target="cd7430e2-b2d2-4b53-ad66-6c3086288b50"/>
+      <arc id="-9223371918778059936" source="cd7430e2-b2d2-4b53-ad66-6c3086288b50" target="sink"/>
+      <arc id="-9223371918778052508" source="p_13" target="99c2aa26-62f7-4f0b-8707-59baa965ee6c"/>
+      <arc id="-9223371918778698896" source="p_8" target="cd7430e2-b2d2-4b53-ad66-6c3086288b50"/>
+      <arc id="-9223371918778218508" source="p_8" target="2ba106fc-7925-4e0a-88f2-deb2ae51538b"/>
+      <arc id="-9223371918778218628" source="p_7" target="skip_5"/>
+    </page>
+    <finalmarkings>
+      <marking>
+        <place idref="sink">
+          <text>1</text>
+        </place>
+      </marking>
+    </finalmarkings>
+  </net>
+</pnml>
