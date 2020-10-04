@@ -1,0 +1,776 @@
+---
+title: "Data Preparation"
+author: "Gunnar Windsand"
+date: "27/08/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+# Data preparation
+
+![bilde 1](5.png)
+*** 
+
+In this chapter, we shift gears into the third CRISP-DM Step: Data Preparation. We are making our transition into modeling (pre-modeling). In this chapter, you will learn:
+
+- How to create a preprocessing pipeline to iteratively combine data into a human readable format
+- How to use the recipes package for preparing the data in a machine readable format
+- How to perform a Correlation Analysis, which helps make sure we have good features before spending time on modeling (next phase)
+
+
+## Data preparation for humans
+
+### Processing Pipeline (For People Readability)
+
+```{r}
+# Libraries
+library(readxl)
+library(tidyverse)
+library(tidyquant)
+library(stringr)
+library(forcats)
+
+# Data
+path_train            <- "00_Data/telco_train.xlsx"
+path_data_definitions <- "00_Data/telco_data_definitions.xlsx"
+
+train_raw_tbl       <- read_excel(path_train, sheet = 1)
+definitions_raw_tbl <- read_excel(path_data_definitions, sheet = 1, col_names = FALSE)
+```
+
+### # Tidying The Data ----
+
+```{r}
+# Tidying The Data ----
+
+train_raw_tbl %>% glimpse()
+```
+
+```{r}
+View(definitions_raw_tbl)
+```
+
+```{r}
+definitions_raw_tbl
+```
+
+```{r}
+definitions_raw_tbl = definitions_raw_tbl %>% 
+  rename(
+    X__1 = "..1",
+    X__2 = "..2"
+    )
+
+
+definitions_raw_tbl
+```
+
+
+
+```{r}
+definitions_tbl = definitions_raw_tbl %>%
+  fill(X__1, .direction = "down") %>%
+  filter(!is.na(X__2)) %>%
+  separate(X__2, into = c("key", "value"), sep = " '", remove = TRUE) %>%
+  rename(column_name = X__1) %>%
+  mutate(key = as.numeric(key)) %>%
+  mutate(value = value%>% str_replace(pattern = "'", replacement = ""))
+  
+```
+
+```{r}
+definitions_tbl
+```
+
+### Mapping over lists
+
+```{r}
+definitions_list <- definitions_tbl %>%
+    split(.$column_name) %>%
+    map(~ select(., -column_name)) %>%
+    map(~ mutate(., value = as_factor(value))) 
+definitions_list
+```
+
+
+```{r}
+#for loop to reset names more fitting for varibles
+for (i in seq_along(definitions_list)) {
+    
+    list_name <- names(definitions_list)[i]
+    
+    colnames(definitions_list[[i]]) <- c(list_name, paste0(list_name, "_value"))
+}
+
+definitions_list
+```
+
+
+### Iterative merge with reduce
+
+```{r}
+data_merged_tbl <- list(HR_Data = train_raw_tbl) %>%
+    append(definitions_list, after = 1) %>%
+    reduce(left_join) %>% # legger til de nye variablene fra listen(PS! må fjerne de gamle)
+    select(-one_of(names(definitions_list))) %>% #fjerner de gamle variablene
+    set_names(str_replace_all(names(.), pattern = "_value", replacement = "")) %>% #fjerne _value med ""
+    select(sort(names(.))) #sortere navn alfabetisk
+
+data_merged_tbl
+```
+
+```{r}
+data_merged_tbl %>%
+    glimpse()
+```
+
+
+```{r}
+#These must be factorized
+data_merged_tbl %>%
+    select_if(is.character) %>%
+    glimpse()
+```
+
+```{r}
+data_merged_tbl %>%
+    distinct(BusinessTravel)
+```
+
+
+```{r}
+#Factorizing
+data_merged_tbl %>%
+    mutate_if(is.character, as.factor) %>%
+  map(levels)
+```
+
+** Must order BusinessTravel and Martial Status **
+
+
+
+```{r}
+#Factorizing
+data_processed_tbl <- data_merged_tbl %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(
+        BusinessTravel = BusinessTravel %>% fct_relevel("Non-Travel", "Travel_Rarely", "Travel_Frequently"),
+        MaritalStatus  = MaritalStatus %>% fct_relevel("Single", "Married", "Divorced")
+    )
+```
+
+
+```{r}
+#Correct ordering
+data_processed_tbl %>%
+    select_if(is.factor) %>%
+    map(levels)
+```
+
+## Processing Pipeline -----
+
+```{r}
+definitions_raw_tbl -> definitions_tbl
+train_raw_tbl -> data
+
+process_hr_data_readable <- function(data, definitions_tbl) {
+    
+    definitions_list <- definitions_tbl %>%
+        fill(X__1, .direction = "down") %>%
+        filter(!is.na(X__2)) %>%
+        separate(X__2, into = c("key", "value"), sep = " '", remove = TRUE) %>%
+        rename(column_name = X__1) %>%
+        mutate(key = as.numeric(key)) %>%
+        mutate(value = value %>% str_replace(pattern = "'", replacement = "")) %>%
+        split(.$column_name) %>%
+        map(~ select(., -column_name)) %>%
+        map(~ mutate(., value = as_factor(value))) 
+    
+    
+    for (i in seq_along(definitions_list)) {
+        list_name <- names(definitions_list)[i]
+        colnames(definitions_list[[i]]) <- c(list_name, paste0(list_name, "_value"))
+    }
+    
+    data_merged_tbl <- list(HR_Data = data) %>%
+        append(definitions_list, after = 1) %>%
+        reduce(left_join) %>%
+        select(-one_of(names(definitions_list))) %>%
+        set_names(str_replace_all(names(.), pattern = "_value", replacement = "")) %>%
+        select(sort(names(.))) %>%
+        mutate_if(is.character, as.factor) %>%
+        mutate(
+            BusinessTravel = BusinessTravel %>% fct_relevel("Non-Travel", "Travel_Rarely", "Travel_Frequently"),
+            MaritalStatus  = MaritalStatus %>% fct_relevel("Single", "Married", "Divorced")
+        )
+    
+    return(data_merged_tbl)
+    
+}
+```
+
+
+```{r}
+train_raw_tbl 
+```
+
+** Endre ved hjelp av kun funksjon for pipeline **
+
+```{r}
+process_hr_data_readable(train_raw_tbl, definitions_tbl = definitions_raw_tbl) %>%
+    glimpse()
+```
+
+
+## Data prep machine readable
+
+```{r}
+
+# Setup ----
+
+# Libraries
+library(recipes)
+library(readxl)
+library(tidyverse)
+library(tidyquant)
+
+# Data
+path_train            <- "00_Data/telco_train.xlsx"
+path_test             <- "00_Data/telco_test.xlsx"
+path_data_definitions <- "00_Data/telco_data_definitions.xlsx"
+
+train_raw_tbl       <- read_excel(path_train, sheet = 1)
+test_raw_tbl        <- read_excel(path_test, sheet = 1)
+definitions_raw_tbl <- read_excel(path_data_definitions, sheet = 1, col_names = FALSE)
+
+definitions_raw_tbl = definitions_raw_tbl %>% 
+  rename(
+    X__1 = "..1",
+    X__2 = "..2"
+    )
+
+
+definitions_raw_tbl
+
+# Processing Pipeline
+source("00_Scripts/data_processing_pipeline.R")
+train_readable_tbl <- process_hr_data_readable(train_raw_tbl, definitions_raw_tbl)
+test_readable_tbl  <- process_hr_data_readable(test_raw_tbl, definitions_raw_tbl)
+
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+# Plot Faceted Histogram Function ----
+
+data <- train_raw_tbl
+
+plot_hist_facet <- function(data, bins = 10, ncol = 5,
+                            fct_reorder = FALSE, fct_rev = FALSE, 
+                            fill = palette_light()[[3]], 
+                            color = "white", scale = "free") {
+    
+    data_factored <- data %>%
+        mutate_if(is.character, as.factor) %>%
+        mutate_if(is.factor, as.numeric) %>%
+        gather(key = key, value = value, factor_key = TRUE) 
+    
+    if (fct_reorder) {
+        data_factored <- data_factored %>%
+            mutate(key = as.character(key) %>% as.factor())
+    }
+    
+    if (fct_rev) {
+        data_factored <- data_factored %>%
+            mutate(key = fct_rev(key))
+    }
+    
+    g <- data_factored %>%
+        ggplot(aes(x = value, group = key)) +
+        geom_histogram(bins = bins, fill = fill, color = color) +
+        facet_wrap(~ key, ncol = ncol, scale = scale) + 
+        theme_tq()
+    
+    return(g)
+    
+}
+
+train_raw_tbl %>%
+    select(Attrition, everything()) %>%
+    plot_hist_facet(bins = 10, ncol = 5, fct_rev = F)
+```
+
+### Data Preprocessing Plan with recepies
+
+
+**Plan **
+
+
+* 1. Impute/ or Zero Variance features
+Verdier som ikkje bidrar til modellen - disse kan fjernes
+
+* 2. Tranformations 
+Se etter skewnees i datae (Se DistanceFromeHome i histogram. Vi ønsker å balansere/nomalisere den type data)
+
+
+* 3. Discretize
+Kan skade correlations - vi vil ikke se på dette i denne analysen
+
+* 4. Scaling
+
+* 5 Dummy variables
+
+* 6. Interaction Variable/Engineered Features
+
+
+* 7.Mulitvariate Tranformations 
+PCA/LDA etc - ikke nødvendig i vår sammenheng.
+
+
+### 1. Zero Variance Features ----
+
+```{r}
+# Plan: Correlation Analysis
+
+# https://tidymodels.github.io/recipes/
+
+# 1. Zero Variance Features ----
+
+
+
+recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors())
+
+recipe_obj
+```
+
+Outcome = binary variable
+Predictor = Resterende variabler 
+
+```{r}
+recipe_obj %>%
+  prep()
+# HAr fjernet en del variabler uten noen form for Variance(EmployeeCount, Over18, StandardHours)
+```
+
+
+
+### 2. Transformations ---- 
+
+```{r}
+# Hvilke features har høy skewness?
+
+skewed_feature_names = train_readable_tbl %>%
+  select_if(is.numeric) %>%
+  map_df(skewness) %>%  # viser skewness for hver variabel/column
+  gather(factor_key = TRUE) %>% #preserve order of varibales and transposes to long df
+  arrange(desc(value)) %>% # Rangere fra høyt til lavt ( må fjerne enten alt for høye eller alt for lave verdier)
+  filter(value >= 0.8) %>% #kun høyere enn 0.8 i dette tilflle - sjekk i histogram
+  pull(key) %>%
+  as.character()
+```
+
+** Gir oss alle skewed features: **
+[1] "YearsSinceLastPromotion" "YearsAtCompany"          "MonthlyIncome"           "TotalWorkingYears"       "NumCompaniesWorked"      "JobLevel"                "DistanceFromHome"        "StockOptionLevel"       
+ [9] "YearsInCurrentRole"      "PercentSalaryHike"       "YearsWithCurrManager"  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=4, fig.height=2}
+train_readable_tbl %>%
+    select(skewed_feature_names) %>%
+    plot_hist_facet()
+```
+
+Joblevel and Stockoptions er faktisk faktor, så disse skal ikke innkluderes som continous. 
+
+```{r}
+!skewed_feature_names %in% c("JobLevel", "StockOptionLevel")
+```
+
+
+```{r}
+#Fjerne faktor-verdiene(features) over
+skewed_feature_names <- train_readable_tbl %>%
+    select_if(is.numeric) %>%
+    map_df(skewness) %>%
+    gather(factor_key = T) %>%
+    arrange(desc(value)) %>%
+    filter(value >= 0.8) %>%
+    filter(!key %in% c("JobLevel", "StockOptionLevel")) %>%
+    pull(key) %>%
+    as.character()
+skewed_feature_names
+```
+
+
+```{r}
+factor_names <- c("JobLevel", "StockOptionLevel")
+
+factor_names
+```
+
+** Implemetere dette i recepien **
+```{r}
+recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors()) %>%
+    step_YeoJohnson(skewed_feature_names) %>% # step_YeoJohnson = power transformation(get rid of the skew)
+    step_num2factor(factor_names) #step_num2factor = factorize features
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=4, fig.height=2}
+recipe_obj %>% 
+    prep() %>% 
+    bake(train_readable_tbl) %>%
+    select(skewed_feature_names) %>%
+    plot_hist_facet()
+```
+
+Vi ser at skewnessen er vekke. 
+
+
+### 3. Center/Scaling -----
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=4, fig.height=2}
+train_readable_tbl %>%
+    select_if(is.numeric) %>%
+    plot_hist_facet()
+```
+
+
+```{r}
+recipe_obj = recipe(Attrition ~ ., data = train_readable_tbl) %>%
+  step_zv(all_predictors()) %>%
+  step_YeoJohnson(skewed_feature_names) %>%
+  step_num2factor(factor_names) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) 
+
+
+recipe_obj$steps[[4]] # before prep
+```
+
+** Means attribute filled in** 
+
+```{r}
+prepared_recipe <- recipe_obj %>% prep()
+
+prepared_recipe$steps[[4]]
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=4, fig.height=2}
+prepared_recipe %>%
+    bake(new_data = train_readable_tbl) %>%
+    select_if(is.numeric) %>%
+    plot_hist_facet()
+```
+
+
+### 4. Dummy Variables ----
+
+
+```{r}
+recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors()) %>%
+    step_YeoJohnson(skewed_feature_names) %>%
+    step_num2factor(factor_names) %>%
+    step_center(all_numeric()) %>%
+    step_scale(all_numeric())   
+
+recipe_obj
+```
+
+ 
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=2, fig.height=1}
+recipe_obj %>% 
+    prep() %>%
+    bake(new_data = train_readable_tbl) %>%
+    select(contains("JobRole")) %>%
+    plot_hist_facet()
+```
+
+```{r}
+dummied_recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors()) %>%
+    step_YeoJohnson(skewed_feature_names) %>%
+    step_num2factor(factor_names) %>%
+    step_center(all_numeric()) %>%
+    step_scale(all_numeric()) %>%
+    step_dummy(all_nominal())
+
+dummied_recipe_obj
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=4, fig.height=2}
+dummied_recipe_obj %>% 
+    prep() %>%
+    bake(new_data = train_readable_tbl) %>%
+    select(contains("JobRole")) %>%
+    plot_hist_facet(ncol = 3)
+```
+
+```{r}
+dummied_recipe_obj %>% 
+    prep() %>%
+    bake(new_data = train_readable_tbl) %>%
+    select(contains("JobRole")) %>%
+    glimpse()
+```
+
+```{r}
+recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors()) %>%
+    step_YeoJohnson(skewed_feature_names) %>%
+    step_num2factor(factor_names) %>%
+    step_center(all_numeric()) %>%
+    step_scale(all_numeric()) %>%
+    step_dummy(all_nominal())
+```
+
+
+### Final Recipe -----
+
+```{r}
+recipe_obj <- recipe(Attrition ~ ., data = train_readable_tbl) %>%
+    step_zv(all_predictors()) %>%
+    step_YeoJohnson(skewed_feature_names) %>%
+    step_num2factor(factor_names) %>%
+    step_center(all_numeric()) %>%
+    step_scale(all_numeric()) %>%
+    step_dummy(all_nominal()) %>%
+    prep()
+
+recipe_obj
+```
+
+
+```{r}
+train_tbl <- bake(recipe_obj, new_data = train_readable_tbl)
+
+test_tbl <- bake(recipe_obj, new_data = test_readable_tbl)
+```
+
+
+
+## Correlation Analysis ----
+
+```{r}
+data <- train_tbl
+feature_expr <- quo(Attrition_Yes)
+```
+
+```{r}
+get_cor <- function(data, target, use = "pairwise.complete.obs",
+                    fct_reorder = FALSE, fct_rev = FALSE) {
+    
+    feature_expr <- enquo(target)
+    feature_name <- quo_name(feature_expr)
+    
+    data_cor <- data %>%
+        mutate_if(is.character, as.factor) %>%
+        mutate_if(is.factor, as.numeric) %>%
+        cor(use = use) %>%
+        as.tibble() %>%
+        mutate(feature = names(.)) %>%
+        select(feature, !! feature_expr) %>%
+        filter(!(feature == feature_name)) %>%
+        mutate_if(is.character, as_factor)
+    
+    if (fct_reorder) {
+        data_cor <- data_cor %>% 
+            mutate(feature = fct_reorder(feature, !! feature_expr)) %>%
+            arrange(feature)
+    }
+    
+    if (fct_rev) {
+        data_cor <- data_cor %>% 
+            mutate(feature = fct_rev(feature)) %>%
+            arrange(feature)
+    }
+    
+    return(data_cor)
+    
+}
+
+
+#Highest correlations
+train_tbl %>%
+    get_cor(Attrition_Yes, fct_reorder = T, fct_rev = T)
+
+```
+
+```{r}
+#Lowest
+train_tbl %>%
+    get_cor(Attrition_Yes, fct_reorder = T)
+```
+
+
+
+
+```{r}
+data  <- train_tbl
+feature_expr <- quo(Attrition_Yes)
+
+plot_cor <- function(data, target, fct_reorder = FALSE, fct_rev = FALSE, 
+                     include_lbl = TRUE, lbl_precision = 2, lbl_position = "outward",
+                     size = 2, line_size = 1, vert_size = 1, 
+                     color_pos = palette_light()[[1]], 
+                     color_neg = palette_light()[[2]]) {
+    
+    feature_expr <- enquo(target)
+    feature_name <- quo_name(feature_expr)
+    
+    data_cor <- data %>%
+        get_cor(!! feature_expr, fct_reorder = fct_reorder, fct_rev = fct_rev) %>%
+        mutate(feature_name_text = round(!! feature_expr, lbl_precision)) %>%
+        mutate(Correlation = case_when(
+            (!! feature_expr) >= 0 ~ "Positive",
+            TRUE                   ~ "Negative") %>% as.factor())
+    
+    g <- data_cor %>%
+        ggplot(aes_string(x = feature_name, y = "feature", group = "feature")) +
+        geom_point(aes(color = Correlation), size = size) +
+        geom_segment(aes(xend = 0, yend = feature, color = Correlation), size = line_size) +
+        geom_vline(xintercept = 0, color = palette_light()[[1]], size = vert_size) +
+        expand_limits(x = c(-1, 1)) +
+        theme_tq() +
+        scale_color_manual(values = c(color_neg, color_pos)) 
+    
+    if (include_lbl) g <- g + geom_label(aes(label = feature_name_text), hjust = lbl_position)
+    
+    return(g)
+    
+}
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=1.9}
+train_tbl %>%
+    select(Attrition_Yes, contains("JobRole")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T, fct_rev = F)
+```
+
+
+## Correlation Evaluation ----
+
+####   1. Descriptive features: age, gender, marital status 
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, Age, contains("Gender"), 
+           contains("MaritalStatus"), NumCompaniesWorked, 
+           contains("Over18"), DistanceFromHome)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=1.6}
+train_tbl %>%
+    select(Attrition_Yes, Age, contains("Gender"), 
+           contains("MaritalStatus"), NumCompaniesWorked, 
+           contains("Over18"), DistanceFromHome) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T, fct_rev = F)
+```
+
+* Alder har høyest innvirking deskriptive variabler.
+* Når alderen stiger, så synker sannsynligheten for Attrtion(pga negativ korrelasjon)
+* DistanceFromHome - jo lengre vekke, større sannsynlighet forå slutte ( pga positiv korreelasjon)
+
+###   2. Employment features: department, job role, job level
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=2}
+train_tbl %>%
+    select(Attrition_Yes, contains("employee"), contains("department"), contains("job"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=3.5}
+train_tbl %>%
+    select(Attrition_Yes, contains("employee"), contains("department"), contains("job")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T) 
+```
+
+* JobSalesRepresentative høyest innvirkning: Jo mer den øker fra job level = 2 jo mindre sannsynlighet for attritions
+
+###   3. Compensation features: HourlyRate, MonthlyIncome, StockOptionLevel 
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("income"), contains("rate"), contains("salary"), contains("stock"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=2}
+train_tbl %>%
+    select(Attrition_Yes, contains("income"), contains("rate"), contains("salary"), contains("stock")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = F, fct_rev = F)
+```
+
+* MonthlyIncome har høy innvirkning for at folk sier opp. Jo mer lønnen stiger jo lavere sannsynlighet for attriton
+
+
+###   4. Survey Results: Satisfaction level, WorkLifeBalance 
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("satisfaction"), contains("life"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=3}
+train_tbl %>%
+    select(Attrition_Yes, contains("satisfaction"), contains("life")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T)
+
+```
+
+* Ingen særlig signifikante verdier
+
+###   5. Performance Data: Job Involvment, Performance Rating
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("performance"), contains("involvement"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=1.5}
+train_tbl %>%
+    select(Attrition_Yes, contains("performance"), contains("involvement")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T )
+```
+
+*Ingen særlig signingkante verdiewr
+
+###   6. Work-Life Features 
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("overtime"), contains("travel"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=1.5}
+train_tbl %>%
+    select(Attrition_Yes, contains("overtime"), contains("travel")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T)
+```
+
+* Ingen særlige signifikante verdier
+
+###   7. Training and Education 
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("training"), contains("education"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=2}
+train_tbl %>%
+    select(Attrition_Yes, contains("training"), contains("education")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T)
+```
+
+* Ingen særlige signifikante verdier
+
+###   8. Time-Based Features: Years at company, years in current role
+```{r}
+train_tbl %>%
+    select(Attrition_Yes, contains("training"), contains("education"))
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=3, fig.height=2}
+train_tbl %>%
+    select(Attrition_Yes, contains("training"), contains("education")) %>%
+    plot_cor(target = Attrition_Yes, fct_reorder = T)
+```
+
+* Ingen særlige signifikante verdier

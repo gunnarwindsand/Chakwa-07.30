@@ -1,0 +1,341 @@
+---
+title: "Data Understanding"
+author: "Gunnar Windsand"
+date: "23/08/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+![bilde 1](5.png)
+*** 
+
+```{r, echo=FALSE}
+# Libraries 
+library(tidyverse)
+library(tidyquant)
+library(readxl)
+library(skimr)
+library(GGally)
+
+# Load Data
+path_train            <- "00_Data/telco_train.xlsx"
+path_data_definitions <- "00_Data/telco_data_definitions.xlsx"
+
+train_raw_tbl       <- read_excel(path_train, sheet = 1)
+definitions_raw_tbl <- read_excel(path_data_definitions, sheet = 1, col_names = FALSE)
+
+```
+
+```{r}
+definitions_raw_tbl
+```
+
+
+```{r}
+train_raw_tbl
+```
+
+
+```{r}
+glimpse(train_raw_tbl)
+```
+
+# EDA
+
+## Explore data by data type
+
+### Data Summarization (skimr)
+
+
+```{r}
+skim(train_raw_tbl)
+```
+
+For mange unike verider er ikke bra
+En unik er heller ikke bra
+
+
+
+```{r, echo=FALSE}
+#install.packages("DataExplorer")
+#https://cran.r-project.org/web/packages/DataExplorer/vignettes/dataexplorer-intro.html
+library(DataExplorer)
+create_report(train_raw_tbl)
+```
+ 
+![bilde 1](report_files/figure-html/correlation_analysis-1.png)
+*** 
+
+![bilde 1](plot_frequency_bar-1.png)
+
+![bilde 1](plot_frequency_bar-2.png)
+
+![bilde 1](plot_histogram-1.png)
+
+![bilde 1](plot_histogram-2.png)
+
+
+
+
+![bilde 1](missing_profile-1.png)
+![bilde 1](plot_intro-1.png)
+
+
+### Exploring character data
+
+```{r}
+train_raw_tbl %>%
+  select_if(is.character) %>%
+  glimpse()
+
+#Charachter features
+```
+
+
+```{r}
+train_raw_tbl %>%
+  select_if(is.character) %>%
+  map(unique)
+
+#maps across all columns - viser alle kategoriske mulgiheter innenfor variablene
+```
+
+```{r}
+train_raw_tbl %>%
+    select_if(is.character) %>%
+    map(~ table(.) %>% prop.table())
+
+# Proportions of the values
+```
+
+
+### Numeric data
+
+```{r}
+#Discrete values
+
+train_raw_tbl %>%
+    select_if(is.numeric) %>%
+    map(~ unique(.) %>% length())
+
+#length of number of unique features
+```
+
+```{r}
+train_raw_tbl %>%
+    select_if(is.numeric) %>%
+    map_df(~ unique(.) %>% length()) %>% #map_df gives DF
+    gather() %>% #collect columns in wide format and converts to long format with columns names as a variable in the "key" column
+    arrange(value) %>% #rangere etter value
+    filter(value <= 10) #non-essential features, evt kategorisk data
+
+
+```
+
+## Visualizing The Feature-Target Interactions
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome) %>% #Descriptive features
+    ggpairs() 
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome) %>%
+    ggpairs(aes(color = Attrition), lower = "blank", legend = 1,
+            diag  = list(continuous = wrap("densityDiag", alpha = 0.5))) +
+    theme(legend.position = "bottom")
+
+#Blue = yes
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+data <- train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome)
+
+plot_ggpairs <- function(data, color = NULL, density_alpha = 0.5) {
+    
+    color_expr <- enquo(color)
+    
+    if (rlang::quo_is_null(color_expr)) {
+        
+        g <- data %>%
+            ggpairs(lower = "blank") 
+        
+    } else {
+        
+        color_name <- quo_name(color_expr)
+        
+        g <- data %>%
+            ggpairs(mapping = aes_string(color = color_name), 
+                    lower = "blank", legend = 1,
+                    diag = list(continuous = wrap("densityDiag", 
+                                                  alpha = density_alpha))) +
+            theme(legend.position = "bottom")
+    }
+    
+    return(g)
+    
+}
+
+train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome) %>%
+    plot_ggpairs(color = Attrition)
+```
+
+
+
+## Explore Features by Category
+
+###   1. Descriptive features: age, gender, marital status 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   1. Descriptive features: age, gender, marital status 
+train_raw_tbl %>%
+    select(Attrition, Age, Gender, MaritalStatus, NumCompaniesWorked, Over18, DistanceFromHome) %>%
+    plot_ggpairs(Attrition)
+```
+
+- Younger people leaving
+- People that live farter away have a tedency of leaving 
+
+
+###   2. Employment features: department, job role, job level
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("employee"), contains("department"), contains("job"))
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+train_raw_tbl %>%
+    select(Attrition, contains("employee"), contains("department"), contains("job")) %>%
+    plot_ggpairs(Attrition) 
+```
+
+- Higher proportion in one of the deprtmanets that quit
+- Jobinvolvement: Higher spike with people staying. Er de i kategori 1 og 2 er det større sannsynlighet for å slutte. Gir mening: mer innvolvert = mer happy
+- Joblevel: more people leaving in the first job level
+
+###   3. Compensation features: HourlyRate, MonthlyIncome, StockOptionLevel 
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("income"), contains("rate"), contains("salary"), contains("stock"))
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   3. Compensation features: HourlyRate, MonthlyIncome, StockOptionLevel 
+train_raw_tbl %>%
+    select(Attrition, contains("income"), contains("rate"), contains("salary"), contains("stock")) %>%
+    plot_ggpairs(Attrition)
+```
+
+- lower income = higher attrition
+- lower daily rate = higher attrition
+- 0 stock option label = more attrtion
+1 = low attrtion
+
+
+###   4. Survey Results: Satisfaction level, WorkLifeBalance 
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("satisfaction"), contains("life"))
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   4. Survey Results: Satisfaction level, WorkLifeBalance 
+train_raw_tbl %>%
+    select(Attrition, contains("satisfaction"), contains("life")) %>%
+    plot_ggpairs(Attrition)
+```
+
+###   5. Performance Data: Job Involvment, Performance Rating
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("performance"), contains("involvement"))
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   5. Performance Data: Job Involvment, Performance Rating
+train_raw_tbl %>%
+    select(Attrition, contains("performance"), contains("involvement")) %>%
+    plot_ggpairs(Attrition)
+```
+
+De dårligste slutter 
+Samtdidig som en del av de flinkeste
+
+###   6. Work-Life Features
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("overtime"), contains("travel"))
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   6. Work-Life Features 
+train_raw_tbl %>%
+    select(Attrition, contains("overtime"), contains("travel")) %>%
+    plot_ggpairs(Attrition)
+```
+
+Større sannsynlighet at de som aldri reiser slutter
+
+
+###   7. Training and Education 
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("training"), contains("education"))
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   7. Training and Education 
+train_raw_tbl %>%
+    select(Attrition, contains("training"), contains("education")) %>%
+    plot_ggpairs(Attrition)
+```
+
+- Mer utdanning = større % slutter
+
+Life scineces og meidcal = større % slutter i større grad
+
+
+###   8. Time-Based Features: Years at company, years in current role
+
+```{r}
+train_raw_tbl %>%
+    select(Attrition, contains("years"))
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=12, fig.height=8}
+#   8. Time-Based Features: Years at company, years in current role
+train_raw_tbl %>%
+    select(Attrition, contains("years")) %>%
+    plot_ggpairs(Attrition)
+```
+
+- Jo mer fersk man er jo større sannsynlighet for å slutte. 

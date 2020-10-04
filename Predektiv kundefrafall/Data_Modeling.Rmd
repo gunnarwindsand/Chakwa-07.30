@@ -1,0 +1,209 @@
+---
+title: "Data modeling"
+author: "Gunnar Windsand"
+date: "27/08/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Set up
+
+```{r}
+# Load Libraries 
+
+library(h2o)
+library(recipes)
+library(readxl)
+library(tidyverse)
+library(tidyquant)
+library(stringr)
+library(forcats)
+library(cowplot)
+library(fs)
+library(glue)
+
+# Load Data
+path_train            <- "00_Data/telco_train.xlsx"
+path_test             <- "00_Data/telco_test.xlsx"
+path_data_definitions <- "00_Data/telco_data_definitions.xlsx"
+
+train_raw_tbl       <- read_excel(path_train, sheet = 1)
+test_raw_tbl        <- read_excel(path_test, sheet = 1)
+definitions_raw_tbl <- read_excel(path_data_definitions, sheet = 1, col_names = FALSE)
+
+definitions_raw_tbl = definitions_raw_tbl %>% 
+  rename(
+    X__1 = "..1",
+    X__2 = "..2"
+    )
+
+# Processing Pipeline
+source("00_Scripts/data_processing_pipeline.R")
+train_readable_tbl <- process_hr_data_readable(train_raw_tbl, definitions_raw_tbl)
+test_readable_tbl  <- process_hr_data_readable(test_raw_tbl, definitions_raw_tbl)
+```
+
+
+## ML preprocessing
+
+```{r}
+recipe_obj = recipe(Attrition ~., data = train_readable_tbl) %>%
+  step_zv(all_predictors()) %>%
+  step_num2factor(JobLevel, StockOptionLevel) %>%
+  prep()
+
+recipe_obj
+```
+
+```{r}
+train_tbl <- bake(recipe_obj, new_data = train_readable_tbl)
+test_tbl  <- bake(recipe_obj, new_data = test_readable_tbl)
+```
+
+
+## Modelling
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+h2o.init()
+
+split_h2o <- h2o.splitFrame(as.h2o(train_tbl), ratios = c(0.85), seed = 1234)
+
+train_h2o <- split_h2o[[1]]
+valid_h2o <- split_h2o[[2]]
+test_h2o  <- as.h2o(test_tbl)
+
+y <- "Attrition"
+x <- setdiff(names(train_h2o), y)
+```
+
+```{r}
+automl_models_h2o = h2o.automl(
+  x = x,
+  y = y,
+  training_frame = train_h2o,
+  validation_frame = valid_h2o,
+  max_runtime_secs = 30,
+  nfolds = 5
+  
+)
+```
+
+```{r}
+typeof(automl_models_h2o)
+```
+
+
+```{r}
+slotNames(automl_models_h2o)
+```
+
+```{r}
+automl_models_h2o@leaderboard
+```
+
+```{r}
+automl_models_h2o@leader
+```
+
+```{r}
+h2o.getModel("GLM_grid_1_AutoML_20190827_171107_model_1")
+```
+
+```{r}
+h2o.getModel("DeepLearning_1_AutoML_20190827_171107")
+```
+
+
+
+
+### Saving & Loading
+
+```{r}
+h2o.getModel("StackedEnsemble_BestOfFamily_AutoML_20190827_171107") %>%
+    h2o.saveModel(path = "04_Modeling/h2o_models/")
+```
+
+
+```{r}
+h2o.getModel("GLM_grid_1_AutoML_20190827_171107_model_1") %>%
+    h2o.saveModel(path = "04_Modeling/h2o_models/")
+```
+
+
+```{r}
+h2o.getModel("DeepLearning_1_AutoML_20190827_171107") %>%
+    h2o.saveModel(path = "04_Modeling/h2o_models/")
+```
+
+```{r}
+deeplearning_h2o <- h2o.loadModel("04_Modeling/h2o_models/DeepLearning_1_AutoML_20190827_171107")
+```
+
+
+```{r}
+glm_h2o <- h2o.loadModel("04_Modeling/h2o_models/GLM_grid_1_AutoML_20190827_171107_model_1")
+```
+
+
+```{r}
+stacked_ensemble_h2o <- h2o.loadModel("04_Modeling/h2o_models/StackedEnsemble_BestOfFamily_AutoML_20190827_171107")
+```
+
+
+
+## Making Predictions
+
+```{r}
+predictions <- h2o.predict(glm_h2o, newdata = as.h2o(test_tbl))
+
+typeof(predictions)
+```
+
+```{r}
+predictions_tbl <- predictions %>% as.tibble()
+predictions_tbl
+```
+
+** "predict" = Class prediction**
+** "No" = 1st Class Probability **
+** "Yes" = 2st Class probability **
+
+Mao sannsynligheten for at for at første person forlater selskapet er ca 2 %
+Slik kan man targete hvor
+
+## 3. Visualizing The Leaderboard ----
+
+```{r}
+data_transformed <- automl_models_h2o@leaderboard %>% 
+    as.tibble() %>%
+    mutate(model_type = str_split(model_id, "_", simplify = T)[,1]) %>%
+    slice(1:10) %>%
+    rownames_to_column() %>%
+    mutate(
+        model_id   = as_factor(model_id) %>% reorder(auc),
+        model_type = as.factor(model_type)
+    ) %>%
+    gather(key = key, value = value, -c(model_id, model_type, rowname), factor_key = T) %>%
+    mutate(model_id = paste0(rowname, ". ", model_id) %>% as_factor() %>% fct_rev()) 
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.width=6, fig.height=4}
+data_transformed %>%
+    ggplot(aes(value, model_id, color = model_type)) +
+    geom_point(size = 3) +
+    geom_label(aes(label = round(value, 2), hjust = "inward")) +
+    facet_wrap(~ key, scales = "free_x") +
+    theme_tq() +
+    scale_color_tq() +
+    labs(title = "H2O Leaderboard Metrics",
+         subtitle = paste0("Ordered by: auc"),
+         y = "Model Postion, Model ID", x = "")
+```
+
+
+
+
+
+

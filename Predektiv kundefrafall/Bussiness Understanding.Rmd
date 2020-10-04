@@ -1,0 +1,707 @@
+---
+title: "Business Understanding"
+author: "Business Science"
+date: "8/21/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+![bilde 1](5.png)
+*** 
+
+
+### Libraries
+```{r, echo=FALSE}
+library(tidyverse)
+library(tidyquant)
+library(readxl)
+library(forcats)
+library(stringr)
+```
+ 
+### Read data
+```{r}
+# Load Data
+path_train    <- '00_Data/telco_train.xlsx'
+train_raw_tbl <- read_excel(path_train, sheet = 1)
+```
+### Subset of data
+```{r}
+dept_job_role_tbl = train_raw_tbl %>%
+  select(EmployeeNumber, Department, JobRole, PerformanceRating, Attrition)
+```
+
+## Step 1: View the data as a machine ----
+
+Step 1: Isolate business unit BSU's: Department and Job Role
+Step 2: Define Objectives:  Retaing High Performers
+Step 3: Assess Outcomes: TBD
+
+
+```{r}
+dept_job_role_tbl
+```
+
+
+```{r}
+dept_job_role_tbl %>%
+  group_by(Attrition) %>%
+  summarize(n = n()) %>% #summarize all count by attrition
+  ungroup() %>%
+  mutate(pct = n / sum(n)) #add precent column
+
+```
+
+**Is 16 % attrition a bad thing?**
+
+## Step 2: Understand drivers
+
+Step 1: Investigate objectives: 16 % Attrition
+Step 2: Synthezize outcomes:
+Step 3: Hypothize drivers: Department and jobrole
+
+### Understand the driver by department
+
+```{r}
+
+dept_job_role_tbl %>%
+  group_by(Department, Attrition) %>%
+  summarize(n = n()) %>% #summarize all count by attrition
+  ungroup() %>%
+  
+  group_by(Department) %>%
+  mutate(pct = n / sum(n)) #add precent column
+```
+
+Ser at det er ganske jevnt hvorvidt folk slutter i de ulike avdleingene (24, 13, 21)
+
+
+
+### Understand the drivers by job role
+
+
+```{r}
+dept_job_role_tbl %>% 
+  
+  group_by(Department, JobRole, Attrition) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  
+  group_by(Department, JobRole) %>% 
+  mutate(pct = n/sum(n)) %>% 
+  ungroup() %>% 
+  
+  filter(Attrition %in% c('Yes'))
+```
+
+Klart flest som slutter i HR OG Lab_tech
+
+## Measure the drivers: 
+
+Step 1: Collect data on employee attrition: Ongoing
+Step 2: Develop KPI's
+
+### Collect data
+
+```{r}
+# Dette er data som må anskaffes internt
+glimpse(train_raw_tbl)
+```
+
+### Develop KPI's - Industry KPI's
+Industry KPIs -> 8.8% attrition becnhmark for utility comapnies
+
+Assessing attrtion vs KPI
+ 
+```{r}
+dept_job_role_tbl %>% 
+  
+  group_by(Department, JobRole, Attrition) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  
+  group_by(Department, JobRole) %>% 
+  mutate(pct = n/sum(n)) %>% 
+  ungroup() %>% 
+  
+  filter(Attrition == 'Yes') %>% 
+  arrange(desc(pct)) %>%  #arrange by pct
+  mutate(
+    above_industry_avg = case_when(
+      pct > 0.088 ~ 'Yes',  #if statement
+      TRUE ~ 'No'
+    )
+  )
+
+#har laget en kolonne som sier om det er over/under industry average
+
+```
+ 
+## Uncover problems and oppurtunities
+
+### Calculate attrtion cost
+
+```{r}
+calculate_attrition_cost = function(
+  
+  # Employee
+  n                    = 1,
+  salary               = 80000,
+  
+  # Direct Costs
+  separation_cost      = 500,
+  vacancy_cost         = 10000,
+  acquisition_cost     = 4900,
+  placement_cost       = 3500,
+  
+  # Productivity Costs
+  net_revenue_per_employee = 250000,
+  workdays_per_year        = 240,
+  workdays_position_open   = 40,
+  workdays_onboarding      = 60,
+  onboarding_efficiency    = 0.50
+) {
+  
+  # Direct Costs
+  direct_cost <- sum(separation_cost, vacancy_cost, acquisition_cost, placement_cost)
+  
+  # Lost Productivity Costs
+  productivity_cost <- net_revenue_per_employee / workdays_per_year * 
+    (workdays_position_open + workdays_onboarding * onboarding_efficiency) 
+  
+  # Savings of Salary & Benefits (Cost Reduction)
+  salary_benefit_reduction <- salary / workdays_per_year * workdays_position_open
+  
+  # Estimated Turnover Per Employee
+  cost_per_employee <- direct_cost + productivity_cost - salary_benefit_reduction
+  
+  # Total Cost of Employee Turnover
+  total_cost <- n * cost_per_employee
+  
+  return(total_cost) 
+}
+```
+
+```{r}
+#Default 1 employee (per person)
+calculate_attrition_cost()
+```
+
+```{r}
+# 200 employees
+calculate_attrition_cost(200)
+
+#Koster 15 000 000 å miste 200 ansatte
+```
+
+### Calculate cost by job level
+
+```{r}
+dept_job_role_tbl %>% 
+  
+  group_by(Department, JobRole, Attrition) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  
+  group_by(Department, JobRole) %>% 
+  mutate(pct = n/sum(n)) %>% 
+  ungroup() %>% 
+  
+  filter(Attrition == 'Yes') %>% 
+  arrange(desc(pct)) %>%  #arrange by pct
+  mutate(
+    above_industry_avg = case_when(
+      pct > 0.088 ~ 'Yes',  #if statement
+      TRUE ~ 'No'
+    )
+  ) %>%
+  
+  mutate(
+    cost = calculate_attrition_cost(n=n)
+  )
+```
+
+
+```{r}
+dept_job_role_tbl %>% 
+    
+    group_by(Department, JobRole, Attrition) %>%
+    summarize(n = n()) %>%
+    ungroup() %>%
+    
+    group_by(Department, JobRole) %>%
+    mutate(pct = n / sum(n)) %>%
+    ungroup() %>%
+    
+    filter(Attrition %in% c("Yes")) %>%
+    arrange(desc(pct)) %>%
+    mutate(
+        above_industry_avg = case_when(
+            pct > 0.088 ~ "Yes",
+            TRUE ~ "No"
+        )
+    ) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    )
+```
+
+Nå har vi kolonner med kostnaden på attrition for hver avdeling basert på antallet som slutter i bedriften.
+
+In this series of lectures, we take the next step in an analysis by turning repetitive code into a streamlined workflow. You will:
+
+**Learn to program using the Tidy Eval framework for programming with the tidyverse**
+
+**Reduce your attrition code by 80%, focusing on the key actions of:**
+* Counting attrition
+* Converting counts to percentages
+* Assessing attrition
+
+## Streamlining the counts
+
+```{r}
+dept_job_role_tbl %>% 
+    
+    count(JobRole, Attrition, Department)%>%
+    
+    group_by(Department, JobRole) %>%
+    mutate(pct = n / sum(n)) %>%
+    ungroup() %>%
+    
+    filter(Attrition %in% c("Yes")) %>%
+    arrange(desc(pct)) %>%
+    mutate(
+        above_industry_avg = case_when(
+            pct > 0.088 ~ "Yes",
+            TRUE ~ "No"
+        )
+    ) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    )
+```
+
+
+## Streamlining the count to percentage calculation
+
+** Function **
+```{r}
+count_to_pct <- function(data, ..., col = n) {
+    
+    grouping_vars_expr <- quos(...)
+    col_expr <- enquo(col)
+    
+    ret <- data %>%
+        group_by(!!! grouping_vars_expr) %>%
+        mutate(pct = (!! col_expr) / sum(!! col_expr)) %>%
+        ungroup()
+    
+    return(ret)
+    
+}
+```
+
+```{r}
+dept_job_role_tbl %>% 
+    
+    count(Department, JobRole, Attrition) %>%
+    
+    count_to_pct(Department, JobRole) %>%
+    
+    filter(Attrition %in% c("Yes")) %>%
+    arrange(desc(pct)) %>%
+    mutate(
+        above_industry_avg = case_when(
+            pct > 0.088 ~ "Yes",
+            TRUE ~ "No"
+        )
+    ) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    )
+```
+
+## Streamlining the attrition assessment
+
+```{r}
+dept_job_role_tbl %>% 
+    
+    count(Department, JobRole, Attrition) %>%
+    
+    count_to_pct(Department, JobRole) %>%
+    
+    filter(Attrition %in% c("Yes")) %>%
+    arrange(desc(pct)) %>%
+    mutate(
+        above_industry_avg = case_when(
+            pct > 0.088 ~ "Yes",
+            TRUE ~ "No"
+        )
+    ) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    )
+```
+
+** Function ** 
+```{r}
+assess_attrition <- function(data, attrition_col, attrition_value, baseline_pct) {
+    
+    attrition_col_expr <- enquo(attrition_col)
+    
+    data %>% 
+        filter((!! attrition_col_expr) %in% attrition_value) %>%
+        arrange(desc(pct)) %>%
+        mutate(
+            above_industry_avg = case_when(
+                pct > baseline_pct ~ "Yes",
+                TRUE ~ "No"
+            )
+        )
+    
+    
+}
+```
+ 
+
+ ** Final code chunk with functions ** 
+```{r}
+dept_job_role_tbl %>% 
+    
+    count(Department, JobRole, Attrition) %>%
+    
+    count_to_pct(Department, JobRole) %>%
+    
+    assess_attrition(Attrition, attrition_value = "Yes", baseline_pct = 0.088) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    )
+```
+
+
+# Visualising attrition with ggplot2
+
+```{r}
+## Visualsing attrition cost
+
+dept_job_role_tbl %>% 
+    
+    count(Department, JobRole, Attrition) %>%
+    
+    count_to_pct(Department, JobRole) %>%
+    
+    assess_attrition(Attrition, attrition_value = "Yes", baseline_pct = 0.088) %>%
+    
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    ) %>%
+  
+  # Data Manipulation
+    mutate(name = str_c(Department, JobRole, sep = ": ") %>% as_factor()) %>%  #factor for kategorisk data som er enklere å håndtere
+    mutate(name = fct_reorder(name, cost_of_attrition)) %>% #descending reorder etter cost of attrtion
+    mutate(cost_text = str_c("$", format(cost_of_attrition / 1e6, digits = 2), 
+                             "M", sep = "")) %>% #text med beløp
+    
+    # Plotting
+    ggplot(aes(x = cost_of_attrition, y = name)) +  
+    geom_segment(aes(xend = 0, yend = name), color = palette_light()[[1]]) + #linjene
+    geom_point(aes(size = cost_of_attrition), color = palette_light()[[1]]) + #endestykke linje
+    scale_x_continuous(labels = scales::dollar) + #dollar
+    geom_label(aes(label = cost_text, size = cost_of_attrition),  
+               hjust = "inward", color = palette_light()[[1]]) + #
+    theme_tq() +  #tema
+    scale_size(range = c(3, 5)) + #størrelse
+    labs(title = "Estimated Cost of Attrition: By Dept and Job Role",
+         y = "", x = "Cost of Attrition") +
+    theme(legend.position = "none")
+  
+  
+```
+
+
+## Stramlining plotting with custom plotting function
+
+```{r}
+
+plot_attrition <- function(data, ..., .value, #departments etc.. and cost of attrtion
+                           fct_reorder = TRUE, 
+                           fct_rev = FALSE,  #reverese the plpt
+                           include_lbl = TRUE, 
+                           color = palette_light()[[1]],  #farge
+                           units = c("0", "K", "M")) { #units(dollar) 
+    
+    
+    # Inputs
+    
+    group_vars_expr <- quos(...)
+    if (length(group_vars_expr) == 0) 
+        group_vars_expr <- quos(rlang::sym(colnames(data)[[1]]))
+    
+    value_expr <- enquo(.value)
+    value_name <- quo_name(value_expr)
+    
+    units_val <- switch(units[[1]],
+                        "M" = 1e6,
+                        "K" = 1e3,
+                        "0"  = 1)
+    if (units[[1]] == "0") units <- ""
+    
+    
+    # Data Manipulation
+    usd <- scales::dollar_format(prefix = "$", largest_with_cents = 1e3)
+    
+    data_manipulated <- data %>%
+        mutate(name = str_c(!!! group_vars_expr, sep = ": ") %>% as_factor()) %>% 
+        mutate(value_text = str_c(usd(!! value_expr / units_val), 
+                                  units[[1]], sep = ""))
+    
+    
+    if (fct_reorder) {
+        data_manipulated <- data_manipulated %>%
+            mutate(name = forcats::fct_reorder(name, !! value_expr)) %>%
+            arrange(name)
+    }
+    
+    if (fct_rev) {
+        data_manipulated <- data_manipulated %>%
+            mutate(name = forcats::fct_rev(name)) %>%
+            arrange(name)
+    }
+    
+    # Visualization
+    
+    g <- data_manipulated %>%
+        ggplot(aes_string(x = value_name, y = "name")) +
+        geom_segment(aes(xend = 0, yend = name), color = color) +
+        geom_point(aes_string(size = value_name), color = color) +
+        scale_x_continuous(labels = scales::dollar) +
+        theme_tq() +
+        scale_size(range = c(3, 5)) +
+        theme(legend.position = "none")
+        
+    
+    if (include_lbl) {
+        g <- g +
+            geom_label(aes_string(label = "value_text", size = value_name), 
+                       hjust = "inward", color = color) 
+    }
+    
+    return(g)
+    
+}
+
+
+```
+
+### Estimated cost of Attrition by Department and Job role
+
+```{r}
+dept_job_role_tbl %>% 
+    
+    count(Department, JobRole, Attrition) %>%
+    count_to_pct(Department, JobRole) %>%
+    assess_attrition(Attrition, attrition_value = "Yes", baseline_pct = 0.088) %>%
+    mutate(
+        cost_of_attrition = calculate_attrition_cost(n = n, salary = 80000)
+    ) %>%
+    
+    plot_attrition(Department, JobRole, .value = cost_of_attrition,
+                   units = "M") +
+    labs(
+        title = "Estimated Cost of Attrition by Department & Job Role",
+        x = "Cost of Attrition", y = "",
+        subtitle = "Looks like Sales Executive and Laboratory Technician are the biggest drivers of cost"
+    )
+```
+
+´
+
+## Cost og attrition
+
+In an effort to provide a more realistic picture of the cost of attrition, your HR and Accounting Departments have worked together to provide estimated average salary and average productivity figures by Job Role and Department. Your assignment is to combine this data [hint: use dplyr::left_join()] with the dept_jobrole_tbl in order assess a more realistic attrition cost for the organization.
+
+ # HOMEWORK 1 ----
+
+```{r}
+# Libraries ----
+library(tidyverse)
+library(tidyquant)
+library(readxl)
+library(forcats)
+library(stringr)
+```
+
+
+```{r}
+# Source Scripts ----
+source("00_Scripts/assess_attrition.R")
+```
+
+
+```{r}
+# Data ----
+path_train     <- "00_Data/telco_train.xlsx"
+train_raw_tbl  <- read_excel(path_train, sheet = 1)
+
+dept_jobrole_tbl <- train_raw_tbl %>%
+    select(EmployeeNumber, Department, JobRole, PerformanceRating, Attrition)
+
+kpi_industry_turnover_pct <- 0.088
+```
+
+```{r}
+dept_jobrole_tbl
+```
+
+
+
+
+# Productivity Cost by Role ----
+
+```{r}
+productivity_cost_by_role_tbl <- read_excel("00_Data/productivity_cost_by_role.xlsx")
+productivity_cost_by_role_tbl
+```
+
+
+
+# Q1: Which Job Role has the highest total cost of attrition? ----
+
+```{r}
+dept_jobrole_productivity_tbl = dept_jobrole_tbl %>%
+  count(Department, JobRole, Attrition) %>%
+  count_to_pct(Department, JobRole) %>%
+  assess_attrition(Attrition, "Yes", baseline_pct = kpi_industry_turnover_pct) %>%
+  
+  #Left join
+  left_join(productivity_cost_by_role_tbl, by = c("Department", "JobRole")) %>%
+  
+  # Attrition Cost
+  mutate(
+    attrition_cost = calculate_attrition_cost(n=n,
+                                              salary = Salary_Average,
+                                              net_revenue_per_employee  = Revenue_Average)
+  )
+```
+
+
+```{r}
+dept_jobrole_productivity_tbl
+```
+
+
+```{r}
+dept_jobrole_productivity_tbl %>%
+  plot_attrition(Department, JobRole, .value = attrition_cost)
+```
+ 
+
+# Q2: What is the total cost of attrition for the Research & Development: Research Scientist job role? ----
+
+```{r}
+dept_jobrole_productivity_tbl %>%
+  plot_attrition(Department, JobRole, .value = attrition_cost, units = "M")
+```
+
+2.28 M$
+
+
+# Q3: What percentage do the top four Job Roles account for in terms of the total cost of attrition? ----
+
+```{r}
+dept_jobrole_productivity_tbl %>%
+  arrange(desc(attrition_cost)) %>%
+  mutate(row_num = row_number()) %>%
+  mutate(is_top_4 = case_when(
+    row_num <= 4~ "Yes",
+    TRUE ~ "No"
+  )) %>%
+  
+  #Summarize cost by Top_4
+  
+  group_by(is_top_4)%>%
+  summarize(
+    total_attrition_cost = sum(attrition_cost)
+  ) %>%
+  ungroup() %>%
+  
+  #Calculate percentage of total
+  mutate(total_attrition_pct = total_attrition_cost/sum(total_attrition_cost))
+
+```
+
+```{r}
+dept_jobrole_tbl %>% 
+  
+  count(JobRole,Attrition) %>% 
+  count_to_pct(JobRole) %>%
+  left_join(productivity_cost_by_role_tbl,by=c('JobRole')) %>%
+  assess_attrition(Attrition,attrition_value = 'Yes',baseline_pct = 0.088) %>%
+  mutate(
+    cost_of_attrition = calculate_attrition_cost(n = n, salary = Salary_Average,net_revenue_per_employee=Revenue_Average)
+  ) %>%
+  arrange(desc(cost_of_attrition)) %>%
+  mutate(total=sum(cost_of_attrition)) %>%
+  top_n(4,wt = cost_of_attrition) %>%
+  summarise(cost_of_attrition=sum(cost_of_attrition)/unique(total))
+
+```
+
+
+
+# Q4. Which Department has the highest total cost of attrition? ----
+
+
+# Q5: What percentage does the top Department account for in terms of the total cost of attrition? ----
+
+```{r}
+dept_jobrole_tbl %>% 
+  # get headcount of each department: jobrole
+  count(Department, JobRole) %>% 
+  # get average salary and revenue
+  left_join(productivity_cost_by_role_tbl) %>% 
+  # generate department avg sal and rev
+  group_by(Department) %>% 
+  summarise(
+    dept_avg_sal = sum(n*Salary_Average)/sum(n),
+    dept_avg_rev = sum(n*Revenue_Average)/sum(n)
+  ) %>% 
+  ungroup() %>% 
+  # get attrition numbers by department
+  left_join(
+    dept_jobrole_tbl %>% 
+      group_by(Department) %>% 
+      summarise(n = sum(Attrition == "Yes")) %>% 
+      ungroup()
+  ) %>% 
+  # calculate attrition cost
+  mutate(cost = calculate_attrition_cost(
+    n = n, salary = dept_avg_sal, net_revenue_per_employee = dept_avg_rev)
+  ) %>% 
+  arrange(desc(cost)) %>% 
+  # percentage in terms of cost
+  mutate(npct = prop.table(cost) %>% cumsum) 
+```
+
+```{r}
+
+## Answers both 4 and 5
+dept_jobrole_productivity_tbl %>% 
+    group_by(Department) %>% 
+    summarise(attrition_cost = sum(attrition_cost), n = sum(n)) %>% 
+    ungroup() %>% 
+    arrange(desc(attrition_cost)) %>% 
+    mutate(cumulative_attrition = cumsum(attrition_cost)) %>% 
+    mutate(cumulative_percent = cumulative_attrition / sum(attrition_cost)) %>% 
+    select(Department, n, attrition_cost:cumulative_percent)
+```
+
+
+ 
